@@ -12,26 +12,45 @@ namespace XerahS.Avalonia.RegionCapture.Platform.Windows;
 
 /// <summary>
 /// Native Windows window enumeration and detection using DWM APIs.
+/// Uses DWMWA_EXTENDED_FRAME_BOUNDS to get the *visual* bounds of windows
+/// (excluding invisible shadow borders) for accurate snapping.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class NativeWindowService
 {
-    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
     private const uint WS_VISIBLE = 0x10000000;
     private const uint WS_EX_TOOLWINDOW = 0x00000080;
     private const uint WS_EX_NOACTIVATE = 0x08000000;
+    private const uint WS_EX_APPWINDOW = 0x00040000;
+    private const uint WS_EX_LAYERED = 0x00080000;
+    private const uint WS_DISABLED = 0x08000000;
+
+    // Cache for our own overlay windows to exclude them
+    private static readonly HashSet<nint> ExcludedHandles = [];
+
+    /// <summary>
+    /// Registers a window handle to be excluded from enumeration (our overlay windows).
+    /// </summary>
+    public static void ExcludeHandle(nint handle) => ExcludedHandles.Add(handle);
+
+    /// <summary>
+    /// Removes a window handle from the exclusion list.
+    /// </summary>
+    public static void RemoveExcludedHandle(nint handle) => ExcludedHandles.Remove(handle);
 
     /// <summary>
     /// Gets the window at the specified physical point.
+    /// Uses Z-order from EnumWindows (topmost first) for correct layering.
     /// </summary>
     public static WindowInfo? GetWindowAtPoint(PixelPoint point)
     {
         var windows = EnumerateVisibleWindows();
 
-        // Find the topmost window that contains the point
-        foreach (var window in windows.OrderBy(w => w.ZOrder))
+        // EnumWindows returns windows in Z-order (topmost first)
+        // so the first window containing the point is the topmost one
+        foreach (var window in windows)
         {
             if (window.SnapBounds.Contains(point))
             {
@@ -44,6 +63,7 @@ internal static class NativeWindowService
 
     /// <summary>
     /// Enumerates all visible windows with their visual bounds.
+    /// Windows are returned in Z-order (topmost first) as provided by EnumWindows.
     /// </summary>
     public static IReadOnlyList<WindowInfo> EnumerateVisibleWindows()
     {
@@ -52,10 +72,14 @@ internal static class NativeWindowService
 
         PInvoke.EnumWindows((hWnd, lParam) =>
         {
+            // Skip our own overlay windows
+            if (ExcludedHandles.Contains(hWnd.Value))
+                return true;
+
             if (IsWindowValidForCapture(hWnd))
             {
                 var info = GetWindowInfo(hWnd, zOrder++);
-                if (info is not null)
+                if (info is not null && !info.VisualBounds.IsEmpty)
                 {
                     windows.Add(info);
                 }
