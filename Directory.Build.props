@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsAsErrors />
-    <NoWarn>$(NoWarn);CS8785</NoWarn>
+    <NoWarn>$(NoWarn);CS8785;CS1591</NoWarn>
 
     <!-- AOT-Ready settings -->
     <PublishAot>false</PublishAot>

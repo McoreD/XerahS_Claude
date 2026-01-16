@@ -4,7 +4,7 @@ namespace XerahS.Avalonia.RegionCapture.Services;
 
 /// <summary>
 /// State machine for managing region capture interaction states.
-/// Handles transitions: Hovering <-> Dragging -> Selected -> Confirmed/Cancelled
+/// Handles transitions: Hovering &lt;-&gt; Dragging -&gt; Selected -&gt; Confirmed/Cancelled
 /// </summary>
 public sealed class SelectionStateMachine
 {

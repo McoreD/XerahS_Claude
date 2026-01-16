@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
 using XerahS.Avalonia.RegionCapture.Models;
+using PixelRect = XerahS.Avalonia.RegionCapture.Models.PixelRect;
 
 namespace XerahS.Avalonia.RegionCapture.Services;
 
@@ -27,7 +29,7 @@ public static class MonitorEnumerationService
     {
         var screens = Application.Current?.ApplicationLifetime switch
         {
-            Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+            IClassicDesktopStyleApplicationLifetime desktop
                 => desktop.MainWindow?.Screens,
             _ => null
         };

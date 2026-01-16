@@ -6,6 +6,10 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using XerahS.Avalonia.RegionCapture.Models;
 using XerahS.Avalonia.RegionCapture.Services;
+using AvPixelRect = Avalonia.PixelRect;
+using AvPixelPoint = Avalonia.PixelPoint;
+using PixelRect = XerahS.Avalonia.RegionCapture.Models.PixelRect;
+using PixelPoint = XerahS.Avalonia.RegionCapture.Models.PixelPoint;
 
 namespace XerahS.Avalonia.RegionCapture.UI;
 
@@ -273,11 +277,11 @@ public sealed class RegionCaptureControl : Control
         }
 
         // Draw dimmed background with cutout using geometry clipping
-        if (clearRect.HasValue && !clearRect.Value.IsEmpty())
+        if (clearRect is { } rect && rect.Width > 0 && rect.Height > 0)
         {
             // Create combined geometry for XOR-style rendering
             var outerGeometry = new RectangleGeometry(bounds);
-            var innerGeometry = new RectangleGeometry(clearRect.Value);
+            var innerGeometry = new RectangleGeometry(rect);
             var combinedGeometry = new CombinedGeometry(
                 GeometryCombineMode.Exclude,
                 outerGeometry,
@@ -289,23 +293,23 @@ public sealed class RegionCaptureControl : Control
             if (_state == CaptureState.Dragging || _state == CaptureState.Selected)
             {
                 // Shadow first, then border
-                context.DrawRectangle(null, SelectionShadowPen, clearRect.Value);
-                context.DrawRectangle(null, SelectionPen, clearRect.Value);
+                context.DrawRectangle(null, SelectionShadowPen, rect);
+                context.DrawRectangle(null, SelectionPen, rect);
 
                 // Draw resize handles at corners
-                DrawResizeHandles(context, clearRect.Value);
+                DrawResizeHandles(context, rect);
 
                 // Draw dimensions text
-                DrawDimensionsText(context, clearRect.Value);
+                DrawDimensionsText(context, rect);
             }
             else if (_hoveredWindow is not null)
             {
                 // Window snap highlight
-                context.DrawRectangle(null, WindowSnapShadowPen, clearRect.Value);
-                context.DrawRectangle(null, WindowSnapPen, clearRect.Value);
+                context.DrawRectangle(null, WindowSnapShadowPen, rect);
+                context.DrawRectangle(null, WindowSnapPen, rect);
 
                 // Draw window title
-                DrawWindowTitle(context, clearRect.Value, _hoveredWindow.Title);
+                DrawWindowTitle(context, rect, _hoveredWindow.Title);
             }
         }
         else

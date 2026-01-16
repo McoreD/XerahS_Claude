@@ -3,6 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using XerahS.Avalonia.RegionCapture.Models;
+using AvPixelRect = Avalonia.PixelRect;
+using AvPixelPoint = Avalonia.PixelPoint;
+using PixelRect = XerahS.Avalonia.RegionCapture.Models.PixelRect;
+using PixelPoint = XerahS.Avalonia.RegionCapture.Models.PixelPoint;
 
 namespace XerahS.Avalonia.RegionCapture.UI;
 
@@ -34,7 +38,7 @@ public partial class OverlayWindow : Window
         InitializeComponent();
 
         // Position window to cover the entire monitor
-        Position = new PixelPoint((int)monitor.PhysicalBounds.X, (int)monitor.PhysicalBounds.Y);
+        Position = new AvPixelPoint((int)monitor.PhysicalBounds.X, (int)monitor.PhysicalBounds.Y);
         Width = monitor.PhysicalBounds.Width / monitor.ScaleFactor;
         Height = monitor.PhysicalBounds.Height / monitor.ScaleFactor;
 

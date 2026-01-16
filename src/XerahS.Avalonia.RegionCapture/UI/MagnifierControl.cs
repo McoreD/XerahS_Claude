@@ -3,6 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using XerahS.Avalonia.RegionCapture.Models;
+using AvPixelRect = Avalonia.PixelRect;
+using AvPixelPoint = Avalonia.PixelPoint;
+using PixelRect = XerahS.Avalonia.RegionCapture.Models.PixelRect;
+using PixelPoint = XerahS.Avalonia.RegionCapture.Models.PixelPoint;
 
 namespace XerahS.Avalonia.RegionCapture.UI;
 
