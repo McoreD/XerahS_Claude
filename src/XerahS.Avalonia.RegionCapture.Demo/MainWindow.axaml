@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="XerahS.Avalonia.RegionCapture.Demo.MainWindow"
+        Title="XerahS Region Capture Demo"
+        Width="600" Height="400"
+        WindowStartupLocation="CenterScreen">
+
+    <StackPanel Margin="20" Spacing="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+        <TextBlock Text="XerahS Region Capture Demo"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   HorizontalAlignment="Center" />
+
+        <TextBlock Text="Click the button below to start region capture."
+                   TextWrapping="Wrap"
+                   HorizontalAlignment="Center" />
+
+        <Button x:Name="CaptureButton"
+                Content="Start Region Capture"
+                HorizontalAlignment="Center"
+                Padding="20,10"
+                Click="OnCaptureClick" />
+
+        <TextBlock x:Name="ResultText"
+                   TextWrapping="Wrap"
+                   HorizontalAlignment="Center"
+                   Foreground="Gray" />
+    </StackPanel>
+</Window>
