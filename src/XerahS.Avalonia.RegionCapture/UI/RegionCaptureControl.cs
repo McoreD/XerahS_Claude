@@ -18,18 +18,17 @@ public sealed class RegionCaptureControl : Control
     private readonly MonitorInfo _monitor;
     private readonly CoordinateTranslationService _coordinateService;
     private readonly WindowDetectionService _windowService;
+    private readonly SelectionStateMachine _stateMachine;
     private readonly MagnifierControl _magnifier;
-
-    private CaptureState _state = CaptureState.Hovering;
-    private PixelPoint _startPoint;
-    private PixelPoint _currentPoint;
-    private PixelRect _selectionRect;
-    private WindowInfo? _hoveredWindow;
+    private readonly bool _enableKeyboardNudge;
 
     // Rendering configuration
     private readonly double _dimOpacity;
     private readonly bool _enableWindowSnapping;
     private readonly bool _enableMagnifier;
+
+    // Keyboard state tracking
+    private SelectionModifier _activeModifiers = SelectionModifier.None;
 
     // Visual brushes and pens (lazy initialization for performance)
     private IBrush? _dimBrush;
@@ -44,6 +43,12 @@ public sealed class RegionCaptureControl : Control
     public event Action<PixelRect>? RegionSelected;
     public event Action? Cancelled;
 
+    // State machine accessors for rendering
+    private CaptureState _state => _stateMachine.CurrentState;
+    private PixelPoint _currentPoint => _stateMachine.CurrentPoint;
+    private PixelRect _selectionRect => _stateMachine.SelectionRect;
+    private WindowInfo? _hoveredWindow => _stateMachine.HoveredWindow;
+
     public RegionCaptureControl(MonitorInfo monitor, RegionCaptureOptions? options = null)
     {
         options ??= new RegionCaptureOptions();
@@ -52,9 +57,16 @@ public sealed class RegionCaptureControl : Control
         _coordinateService = new CoordinateTranslationService();
         _windowService = new WindowDetectionService();
 
+        // Initialize state machine
+        _stateMachine = new SelectionStateMachine();
+        _stateMachine.SelectionConfirmed += OnSelectionConfirmed;
+        _stateMachine.SelectionCancelled += OnSelectionCancelled;
+        _stateMachine.StateChanged += _ => InvalidateVisual();
+
         _dimOpacity = options.DimOpacity;
         _enableWindowSnapping = options.EnableWindowSnapping;
         _enableMagnifier = options.EnableMagnifier;
+        _enableKeyboardNudge = options.EnableKeyboardNudge;
 
         // Create magnifier if enabled
         _magnifier = new MagnifierControl(options.MagnifierZoom);
@@ -69,35 +81,35 @@ public sealed class RegionCaptureControl : Control
     {
     }
 
+    private void OnSelectionConfirmed(PixelRect rect) => RegionSelected?.Invoke(rect);
+    private void OnSelectionCancelled() => Cancelled?.Invoke();
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
 
         var point = e.GetPosition(this);
-        _startPoint = LocalToPhysical(point);
-        _currentPoint = _startPoint;
+        var physicalPoint = LocalToPhysical(point);
 
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             if (_state == CaptureState.Hovering && _hoveredWindow is not null)
             {
                 // Snap to window
-                _selectionRect = _hoveredWindow.SnapBounds;
-                _state = CaptureState.Selected;
-                ConfirmSelection();
+                _stateMachine.SnapToWindow();
             }
             else
             {
-                _state = CaptureState.Dragging;
-                _selectionRect = new PixelRect(_startPoint.X, _startPoint.Y, 0, 0);
+                // Start dragging
+                _stateMachine.BeginDrag(physicalPoint);
+                e.Pointer.Capture(this);
             }
 
-            e.Pointer.Capture(this);
             InvalidateVisual();
         }
         else if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
-            Cancelled?.Invoke();
+            _stateMachine.Cancel();
         }
     }
 
@@ -106,17 +118,14 @@ public sealed class RegionCaptureControl : Control
         base.OnPointerMoved(e);
 
         var point = e.GetPosition(this);
-        _currentPoint = LocalToPhysical(point);
+        var physicalPoint = LocalToPhysical(point);
 
-        switch (_state)
+        _stateMachine.UpdateCursorPosition(physicalPoint);
+
+        if (_state == CaptureState.Hovering && _enableWindowSnapping)
         {
-            case CaptureState.Hovering:
-                UpdateHoveredWindow();
-                break;
-
-            case CaptureState.Dragging:
-                _selectionRect = PixelRect.FromCorners(_startPoint, _currentPoint);
-                break;
+            var window = _windowService.GetWindowAtPoint(physicalPoint);
+            _stateMachine.UpdateHoveredWindow(window);
         }
 
         InvalidateVisual();
@@ -129,21 +138,7 @@ public sealed class RegionCaptureControl : Control
         if (_state == CaptureState.Dragging)
         {
             e.Pointer.Capture(null);
-
-            _selectionRect = _selectionRect.Normalize();
-
-            if (_selectionRect.Width > 3 && _selectionRect.Height > 3)
-            {
-                _state = CaptureState.Selected;
-                ConfirmSelection();
-            }
-            else
-            {
-                // Selection too small, go back to hovering
-                _state = CaptureState.Hovering;
-                _selectionRect = PixelRect.Empty;
-            }
-
+            _stateMachine.EndDrag();
             InvalidateVisual();
         }
     }
@@ -152,30 +147,86 @@ public sealed class RegionCaptureControl : Control
     {
         base.OnKeyDown(e);
 
-        if (e.Key == Key.Escape)
+        // Update modifiers
+        UpdateModifiers(e);
+
+        switch (e.Key)
         {
-            Cancelled?.Invoke();
-            e.Handled = true;
+            case Key.Escape:
+                _stateMachine.Cancel();
+                e.Handled = true;
+                break;
+
+            case Key.Enter:
+                if (_state == CaptureState.Selected || (_state == CaptureState.Hovering && _hoveredWindow is not null))
+                {
+                    _stateMachine.SnapToWindow();
+                    e.Handled = true;
+                }
+                break;
+
+            // Arrow key nudging
+            case Key.Left when _enableKeyboardNudge:
+                HandleArrowKey(-1, 0, e);
+                break;
+
+            case Key.Right when _enableKeyboardNudge:
+                HandleArrowKey(1, 0, e);
+                break;
+
+            case Key.Up when _enableKeyboardNudge:
+                HandleArrowKey(0, -1, e);
+                break;
+
+            case Key.Down when _enableKeyboardNudge:
+                HandleArrowKey(0, 1, e);
+                break;
         }
     }
 
-    private void UpdateHoveredWindow()
+    protected override void OnKeyUp(KeyEventArgs e)
     {
-        if (!_enableWindowSnapping)
-        {
-            _hoveredWindow = null;
-            return;
-        }
-
-        _hoveredWindow = _windowService.GetWindowAtPoint(_currentPoint);
+        base.OnKeyUp(e);
+        UpdateModifiers(e);
     }
 
-    private void ConfirmSelection()
+    private void UpdateModifiers(KeyEventArgs e)
     {
-        if (!_selectionRect.IsEmpty)
+        var modifiers = SelectionModifier.None;
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            modifiers |= SelectionModifier.LockAspectRatio;
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            modifiers |= SelectionModifier.PixelNudge;
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            modifiers |= SelectionModifier.FromCenter;
+
+        if (_activeModifiers != modifiers)
         {
-            RegionSelected?.Invoke(_selectionRect);
+            _activeModifiers = modifiers;
+            _stateMachine.SetModifiers(modifiers);
+            InvalidateVisual();
         }
+    }
+
+    private void HandleArrowKey(int dx, int dy, KeyEventArgs e)
+    {
+        // Ctrl+Arrow resizes, plain Arrow moves
+        var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : 1;
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _stateMachine.ResizeSelection(dx * step, dy * step);
+        }
+        else
+        {
+            _stateMachine.NudgeSelection(dx * step, dy * step);
+        }
+
+        e.Handled = true;
+        InvalidateVisual();
     }
 
     private PixelPoint LocalToPhysical(Point local)
@@ -271,6 +322,12 @@ public sealed class RegionCaptureControl : Control
         {
             DrawMagnifierPosition(context);
         }
+
+        // Draw modifier hints (bottom-right)
+        DrawModifierHints(context);
+
+        // Draw instructions (top-center, only in hover state)
+        DrawInstructions(context);
     }
 
     private void DrawResizeHandles(DrawingContext context, Rect rect)
@@ -448,5 +505,60 @@ public sealed class RegionCaptureControl : Control
 
         // Draw text
         context.DrawText(formattedText, new Point(textX, textY));
+    }
+
+    private void DrawModifierHints(DrawingContext context)
+    {
+        var hints = new List<string>();
+
+        if (_activeModifiers.HasFlag(SelectionModifier.LockAspectRatio))
+            hints.Add("Shift: Lock aspect ratio");
+
+        if (_activeModifiers.HasFlag(SelectionModifier.FromCenter))
+            hints.Add("Alt: Expand from center");
+
+        if (_activeModifiers.HasFlag(SelectionModifier.PixelNudge))
+            hints.Add("Ctrl: Resize mode");
+
+        if (hints.Count == 0)
+            return;
+
+        var hintText = string.Join(" | ", hints);
+        var formattedHint = new FormattedText(
+            hintText,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Normal),
+            11,
+            new SolidColorBrush(Color.FromRgb(200, 200, 200)));
+
+        var x = Bounds.Width - formattedHint.Width - 16;
+        var y = Bounds.Height - formattedHint.Height - 12;
+
+        var bgRect = new Rect(x - 8, y - 4, formattedHint.Width + 16, formattedHint.Height + 8);
+        context.DrawRectangle(InfoBackgroundBrush, null, bgRect, 4, 4);
+        context.DrawText(formattedHint, new Point(x, y));
+    }
+
+    private void DrawInstructions(DrawingContext context)
+    {
+        if (_state != CaptureState.Hovering)
+            return;
+
+        var instructions = "Click and drag to select a region | Click a window to snap | Esc to cancel";
+        var formatted = new FormattedText(
+            instructions,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Normal),
+            12,
+            new SolidColorBrush(Color.FromRgb(180, 180, 180)));
+
+        var x = (Bounds.Width - formatted.Width) / 2;
+        var y = 12;
+
+        var bgRect = new Rect(x - 12, y - 4, formatted.Width + 24, formatted.Height + 8);
+        context.DrawRectangle(InfoBackgroundBrush, null, bgRect, 4, 4);
+        context.DrawText(formatted, new Point(x, y));
     }
 }
